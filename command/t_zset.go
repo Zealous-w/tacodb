@@ -78,41 +78,43 @@ func (*RedisCommand) ZSetEncodeScoreKeyPrefix(key []byte) []byte {
 }
 
 func (c *RedisCommand) ZSetDel(key []byte) error {
-	return c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	return db.Transaction(func(t interface{}) error {
 		metaKey := c.EncodeKey(KEY_TYPE_ZSET, key)
-		ret := c.db.Get(t, metaKey)
+		ret := db.Get(t, metaKey)
 		if ret == nil {
 			return ErrKeyNotFound
 		}
-		_ = c.db.Del(t, metaKey)
-		fields := c.db.Range(c.ZSetEncodeKeyPrefix(key, 0), c.ZSetEncodeKeyPrefix(key, 2<<63-1))
+		_ = db.Del(t, metaKey)
+		fields := db.Range(c.ZSetEncodeKeyPrefix(key, 0), c.ZSetEncodeKeyPrefix(key, 2<<63-1))
 		for _, v := range fields {
-			_ = c.db.Del(t, v.V0)
+			_ = db.Del(t, v.V0)
 		}
-		scores := c.db.Scan(c.ZSetEncodeScoreKeyPrefix(key))
+		scores := db.Scan(c.ZSetEncodeScoreKeyPrefix(key))
 		for _, v := range scores {
-			_ = c.db.Del(t, v.V0)
+			_ = db.Del(t, v.V0)
 		}
 		return nil
 	})
 }
 
 func (c *RedisCommand) ZAdd(key []byte, score uint64, value []byte) error {
-	return c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	return db.Transaction(func(t interface{}) error {
 		meta := &ZSetMeta{}
 		metaKey := c.EncodeKey(KEY_TYPE_ZSET, key)
-		expire, data := c.DecodeValue(c.db.Get(t, metaKey))
+		expire, data := c.DecodeValue(db.Get(t, metaKey))
 		if expire {
 			_ = c.ZSetDel(key)
 		}
 
-		oldScore := c.db.Get(t, c.ZSetEncodeScoreKey(key, value))
+		oldScore := db.Get(t, c.ZSetEncodeScoreKey(key, value))
 		if oldScore != nil { //delete old node
-			err := c.db.Del(t, c.ZSetEncodeScoreKey(key, value))
+			err := db.Del(t, c.ZSetEncodeScoreKey(key, value))
 			if err != nil {
 				return err
 			}
-			err = c.db.Del(t, c.ZSetEncodeKey(key, binary.LittleEndian.Uint64(oldScore), value))
+			err = db.Del(t, c.ZSetEncodeKey(key, binary.LittleEndian.Uint64(oldScore), value))
 			if err != nil {
 				return err
 			}
@@ -121,25 +123,26 @@ func (c *RedisCommand) ZAdd(key []byte, score uint64, value []byte) error {
 
 		meta.Encode(data)
 		meta.len++
-		err := c.db.Put(t, metaKey, c.EncodeValue(meta.Decode(), 0))
+		err := db.Put(t, metaKey, c.EncodeValue(meta.Decode(), 0))
 		if err != nil {
 			return err
 		}
 		scoreByte := make([]byte, 8)
 		binary.LittleEndian.PutUint64(scoreByte, score)
-		err = c.db.Put(t, c.ZSetEncodeScoreKey(key, value), scoreByte)
+		err = db.Put(t, c.ZSetEncodeScoreKey(key, value), scoreByte)
 		if err != nil {
 			return err
 		}
-		return c.db.Put(t, c.ZSetEncodeKey(key, score, value), value)
+		return db.Put(t, c.ZSetEncodeKey(key, score, value), value)
 	})
 }
 
 func (c *RedisCommand) ZRem(key []byte, args ...[]byte) error {
-	return c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	return db.Transaction(func(t interface{}) error {
 		meta := &ZSetMeta{}
 		metaKey := c.EncodeKey(KEY_TYPE_ZSET, key)
-		expire, data := c.DecodeValue(c.db.Get(t, metaKey))
+		expire, data := c.DecodeValue(db.Get(t, metaKey))
 		if data == nil {
 			return ErrKeyNotFound
 		}
@@ -153,28 +156,29 @@ func (c *RedisCommand) ZRem(key []byte, args ...[]byte) error {
 		for _, field := range args {
 			meta.len--
 			scoreKey := c.ZSetEncodeScoreKey(key, field)
-			data := c.db.Get(t, scoreKey)
+			data := db.Get(t, scoreKey)
 			if len(data) <= 0 {
 				return ErrKeyTypeError
 			}
-			err = c.db.Del(t, scoreKey)
+			err = db.Del(t, scoreKey)
 			if err != nil {
 				return err
 			}
-			err = c.db.Del(t, c.ZSetEncodeKey(key, binary.LittleEndian.Uint64(data), field))
+			err = db.Del(t, c.ZSetEncodeKey(key, binary.LittleEndian.Uint64(data), field))
 			if err != nil {
 				return err
 			}
 		}
 
-		return c.db.Put(t, metaKey, meta.Decode())
+		return db.Put(t, metaKey, meta.Decode())
 	})
 }
 
 func (c *RedisCommand) ZScore(key, value []byte) (ret []byte) {
-	err := c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	err := db.Transaction(func(t interface{}) error {
 		metaKey := c.EncodeKey(KEY_TYPE_ZSET, key)
-		expire, data := c.DecodeValue(c.db.Get(t, metaKey))
+		expire, data := c.DecodeValue(db.Get(t, metaKey))
 		if data == nil {
 			return ErrKeyNotFound
 		}
@@ -182,7 +186,7 @@ func (c *RedisCommand) ZScore(key, value []byte) (ret []byte) {
 			_ = c.ZSetDel(key)
 			return ErrKeyNotFound
 		}
-		ret = c.db.Get(t, c.ZSetEncodeScoreKey(key, value))
+		ret = db.Get(t, c.ZSetEncodeScoreKey(key, value))
 		return nil
 	})
 	if err != nil {
@@ -192,9 +196,10 @@ func (c *RedisCommand) ZScore(key, value []byte) (ret []byte) {
 }
 
 func (c *RedisCommand) ZIncrby(key []byte, args ...[]byte) (ret []byte, err error) {
-	err = c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	err = db.Transaction(func(t interface{}) error {
 		metaKey := c.EncodeKey(KEY_TYPE_ZSET, key)
-		expire, data := c.DecodeValue(c.db.Get(t, metaKey))
+		expire, data := c.DecodeValue(db.Get(t, metaKey))
 		if data == nil {
 			return ErrKeyNotFound
 		}
@@ -207,28 +212,29 @@ func (c *RedisCommand) ZIncrby(key []byte, args ...[]byte) (ret []byte, err erro
 			return err
 		}
 
-		oldScore := c.db.Get(t, c.ZSetEncodeScoreKey(key, args[1]))
+		oldScore := db.Get(t, c.ZSetEncodeScoreKey(key, args[1]))
 		if oldScore == nil {
 			return ErrKeyNotFound
 		}
 		score := binary.LittleEndian.Uint64(oldScore)
-		_ = c.db.Del(t, c.ZSetEncodeKey(key, score, args[1]))
-		err = c.db.Put(t, c.ZSetEncodeKey(key, score+addScore, args[1]), args[1])
+		_ = db.Del(t, c.ZSetEncodeKey(key, score, args[1]))
+		err = db.Put(t, c.ZSetEncodeKey(key, score+addScore, args[1]), args[1])
 		if err != nil {
 			return err
 		}
 		byteScore := make([]byte, 8)
 		binary.LittleEndian.PutUint64(byteScore, score+addScore)
 		ret = []byte(fmt.Sprintf("%d", score+addScore))
-		return c.db.Put(t, c.ZSetEncodeScoreKey(key, args[1]), byteScore)
+		return db.Put(t, c.ZSetEncodeScoreKey(key, args[1]), byteScore)
 	})
 	return
 }
 
 func (c *RedisCommand) ZRange(key []byte, args ...[]byte) (ret [][]byte) {
-	err := c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	err := db.Transaction(func(t interface{}) error {
 		metaKey := c.EncodeKey(KEY_TYPE_ZSET, key)
-		expire, data := c.DecodeValue(c.db.Get(t, metaKey))
+		expire, data := c.DecodeValue(db.Get(t, metaKey))
 		if data == nil {
 			return ErrKeyNotFound
 		}
@@ -240,7 +246,7 @@ func (c *RedisCommand) ZRange(key []byte, args ...[]byte) (ret [][]byte) {
 		if len(args) > 2 && strings.ToUpper(string(args[2])) == "WITHSCORES" {
 			showScore = true
 		}
-		slc := c.db.Range(c.ZSetEncodeKeyPrefix(key, 0), c.ZSetEncodeKeyPrefix(key, 2<<63-1))
+		slc := db.Range(c.ZSetEncodeKeyPrefix(key, 0), c.ZSetEncodeKeyPrefix(key, 2<<63-1))
 		for _, v := range slc {
 			ret = append(ret, v.V1)
 			if showScore {
@@ -257,9 +263,10 @@ func (c *RedisCommand) ZRange(key []byte, args ...[]byte) (ret [][]byte) {
 }
 
 func (c *RedisCommand) ZRank(key, value []byte) (ret int, err error) {
-	err = c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	err = db.Transaction(func(t interface{}) error {
 		metaKey := c.EncodeKey(KEY_TYPE_ZSET, key)
-		expire, data := c.DecodeValue(c.db.Get(t, metaKey))
+		expire, data := c.DecodeValue(db.Get(t, metaKey))
 		if data == nil {
 			return ErrKeyNotFound
 		}
@@ -268,11 +275,11 @@ func (c *RedisCommand) ZRank(key, value []byte) (ret int, err error) {
 			return ErrKeyNotFound
 		}
 
-		v := c.db.Get(t, c.ZSetEncodeScoreKey(key, value))
+		v := db.Get(t, c.ZSetEncodeScoreKey(key, value))
 		if v == nil {
 			return ErrKeyNotFound
 		}
-		slc := c.db.Range(c.ZSetEncodeKeyPrefix(key, 0), c.ZSetEncodeKeyPrefix(key, 2<<63-1))
+		slc := db.Range(c.ZSetEncodeKeyPrefix(key, 0), c.ZSetEncodeKeyPrefix(key, 2<<63-1))
 		for k, v := range slc {
 			if bytes.Compare(v.V1, value) == 0 {
 				ret = k
@@ -285,9 +292,10 @@ func (c *RedisCommand) ZRank(key, value []byte) (ret int, err error) {
 }
 
 func (c *RedisCommand) ZCount(key []byte, args ...[]byte) (ret int, err error) {
-	err = c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	err = db.Transaction(func(t interface{}) error {
 		metaKey := c.EncodeKey(KEY_TYPE_ZSET, key)
-		expire, data := c.DecodeValue(c.db.Get(t, metaKey))
+		expire, data := c.DecodeValue(db.Get(t, metaKey))
 		if data == nil {
 			return ErrKeyNotFound
 		}
@@ -306,7 +314,7 @@ func (c *RedisCommand) ZCount(key []byte, args ...[]byte) (ret int, err error) {
 			return err
 		}
 
-		slc := c.db.Range(c.ZSetEncodeKeyPrefix(key, start), c.ZSetEncodeKeyPrefix(key, end))
+		slc := db.Range(c.ZSetEncodeKeyPrefix(key, start), c.ZSetEncodeKeyPrefix(key, end))
 		ret = len(slc)
 		return nil
 	})
@@ -317,9 +325,10 @@ func (c *RedisCommand) ZCount(key []byte, args ...[]byte) (ret int, err error) {
 }
 
 func (c *RedisCommand) ZRevRange(key []byte, args ...[]byte) (ret [][]byte) {
-	err := c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	err := db.Transaction(func(t interface{}) error {
 		metaKey := c.EncodeKey(KEY_TYPE_ZSET, key)
-		expire, data := c.DecodeValue(c.db.Get(t, metaKey))
+		expire, data := c.DecodeValue(db.Get(t, metaKey))
 		if data == nil {
 			return ErrKeyNotFound
 		}
@@ -331,7 +340,7 @@ func (c *RedisCommand) ZRevRange(key []byte, args ...[]byte) (ret [][]byte) {
 		if len(args) > 2 && strings.ToUpper(string(args[2])) == "WITHSCORES" {
 			showScore = true
 		}
-		slc := c.db.Range(c.ZSetEncodeKeyPrefix(key, 0), c.ZSetEncodeKeyPrefix(key, 2<<63-1))
+		slc := db.Range(c.ZSetEncodeKeyPrefix(key, 0), c.ZSetEncodeKeyPrefix(key, 2<<63-1))
 		for k := range slc {
 			v := slc[len(slc)-k-1]
 			ret = append(ret, v.V1)
@@ -349,9 +358,10 @@ func (c *RedisCommand) ZRevRange(key []byte, args ...[]byte) (ret [][]byte) {
 }
 
 func (c *RedisCommand) ZCard(key []byte) (ret int, err error) {
-	err = c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	err = db.Transaction(func(t interface{}) error {
 		metaKey := c.EncodeKey(KEY_TYPE_ZSET, key)
-		expire, data := c.DecodeValue(c.db.Get(t, metaKey))
+		expire, data := c.DecodeValue(db.Get(t, metaKey))
 		if data == nil {
 			return ErrKeyNotFound
 		}

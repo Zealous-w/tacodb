@@ -2,14 +2,16 @@ package command
 
 //string
 func (c *RedisCommand) Set(key, value []byte, ttl uint32) error {
-	return c.db.Transaction(func(t interface{}) error {
-		return c.db.Put(t, c.EncodeKey(KEY_TYPE_STRING, key), c.EncodeValue(value, ttl))
+	db := c.DB(key)
+	return db.Transaction(func(t interface{}) error {
+		return db.Put(t, c.EncodeKey(KEY_TYPE_STRING, key), c.EncodeValue(value, ttl))
 	})
 }
 
 func (c *RedisCommand) Get(key []byte) (ret []byte) {
-	err := c.db.Transaction(func(t interface{}) error {
-		expire, value := c.DecodeValue(c.db.Get(t, c.EncodeKey(KEY_TYPE_STRING, key)))
+	db := c.DB(key)
+	err := db.Transaction(func(t interface{}) error {
+		expire, value := c.DecodeValue(db.Get(t, c.EncodeKey(KEY_TYPE_STRING, key)))
 		if expire {
 			_ = c.Del(key)
 			return ErrKeyNotFound
@@ -25,12 +27,13 @@ func (c *RedisCommand) Get(key []byte) (ret []byte) {
 
 func (c *RedisCommand) Del(key []byte) int {
 	var err error
-	err = c.db.Transaction(func(t interface{}) error {
-		data := c.db.Get(t, c.EncodeKey(KEY_TYPE_STRING, key))
+	db := c.DB(key)
+	err = db.Transaction(func(t interface{}) error {
+		data := db.Get(t, c.EncodeKey(KEY_TYPE_STRING, key))
 		if data == nil {
 			return ErrKeyNotFound
 		}
-		return c.db.Del(t, c.EncodeKey(KEY_TYPE_STRING, key))
+		return db.Del(t, c.EncodeKey(KEY_TYPE_STRING, key))
 	})
 	if err == nil {
 		return 1

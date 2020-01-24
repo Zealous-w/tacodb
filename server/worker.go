@@ -2,20 +2,12 @@ package server
 
 import (
 	"context"
+	"github.com/Zealous-w/tacodb/util"
 	"log"
 	"strings"
 	"sync"
 	"time"
 )
-
-func BKDRHash(str []byte) uint32 {
-	var seed uint32 = 131
-	var hash uint32 = 0
-	for i := 0; i < len(str); i++ {
-		hash = hash*seed + uint32(str[i])
-	}
-	return hash & 0x7FFFFFFF
-}
 
 type WorkerProcess struct {
 	wg       sync.WaitGroup
@@ -45,7 +37,7 @@ func (c *WorkerProcess) Start() {
 }
 
 func (c *WorkerProcess) Push(key []byte, task *Client) {
-	index := BKDRHash(key) & (c.parallel - 1)
+	index := util.BKDRHash(key) & (c.parallel - 1)
 	c.queues[index] <- task
 }
 

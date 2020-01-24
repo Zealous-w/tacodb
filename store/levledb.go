@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"sync"
 
 	"github.com/syndtr/goleveldb/leveldb/util"
@@ -15,7 +16,7 @@ type LevelDB struct {
 	lock sync.Mutex
 }
 
-func NewLevelDB() *LevelDB {
+func NewLevelDB() IStore {
 	return &LevelDB{}
 }
 
@@ -27,6 +28,9 @@ func (c *LevelDB) Open(path string) error {
 		WriteL0PauseTrigger:    64,
 		Compression:            opt.NoCompression,
 		BlockSize:              32768,
+	}
+	if err := os.MkdirAll(path, 0755); err != nil {
+		return err
 	}
 	db, err := leveldb.OpenFile(path, option)
 	if err != nil {

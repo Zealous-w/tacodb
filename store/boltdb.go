@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/boltdb/bolt"
 )
@@ -16,7 +17,7 @@ type BoltDB struct {
 	db *bolt.DB
 }
 
-func NewBoltDB() *BoltDB {
+func NewBoltDB() IStore {
 	return &BoltDB{}
 }
 
@@ -25,6 +26,9 @@ func (d *BoltDB) Open(path string) error {
 	option := &bolt.Options{
 		Timeout:    0,
 		NoGrowSync: false,
+	}
+	if err := os.MkdirAll(path, 0755); err != nil {
+		return err
 	}
 	d.db, err = bolt.Open(path+"/"+"data.db", 0600, option)
 	if err != nil {

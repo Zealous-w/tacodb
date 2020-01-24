@@ -2,7 +2,7 @@ package command
 
 import (
 	"encoding/binary"
-	"tacodb/store"
+	"github.com/Zealous-w/tacodb/store"
 )
 
 //hash
@@ -44,24 +44,26 @@ func (*RedisCommand) HashDecodeKey(key []byte) []byte {
 }
 
 func (c *RedisCommand) HashDel(key []byte) error {
-	return c.db.Transaction(func(t interface{}) error {
-		data := c.db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key))
+	db := c.DB(key)
+	return db.Transaction(func(t interface{}) error {
+		data := db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key))
 		if data == nil {
 			return ErrKeyNotFound
 		}
-		_ = c.db.Del(t, c.EncodeKey(KEY_TYPE_HASH, key))
-		slcRet := c.db.Scan(c.HashEncodeKey(key, []byte{}))
+		_ = db.Del(t, c.EncodeKey(KEY_TYPE_HASH, key))
+		slcRet := db.Scan(c.HashEncodeKey(key, []byte{}))
 		for _, v := range slcRet {
-			_ = c.db.Del(t, c.HashEncodeKey(key, v.V0))
+			_ = db.Del(t, c.HashEncodeKey(key, v.V0))
 		}
 		return nil
 	})
 }
 
 func (c *RedisCommand) HSet(key []byte, args ...[]byte) error {
-	return c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	return db.Transaction(func(t interface{}) error {
 		var err error
-		expire, v := c.DecodeValue(c.db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
+		expire, v := c.DecodeValue(db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
 		hLen := uint32(0)
 		if len(v) > 0 {
 			hLen = binary.LittleEndian.Uint32(v)
@@ -71,11 +73,11 @@ func (c *RedisCommand) HSet(key []byte, args ...[]byte) error {
 		}
 		add := uint32(0)
 		for i := 0; i < len(args) && i+1 < len(args); i += 2 {
-			ret := c.db.Get(t, c.HashEncodeKey(key, args[i]))
+			ret := db.Get(t, c.HashEncodeKey(key, args[i]))
 			if ret == nil {
 				add++
 			}
-			err = c.db.Put(t, c.HashEncodeKey(key, args[i]), args[i+1])
+			err = db.Put(t, c.HashEncodeKey(key, args[i]), args[i+1])
 			if err != nil {
 				return err
 			}
@@ -83,7 +85,7 @@ func (c *RedisCommand) HSet(key []byte, args ...[]byte) error {
 		if add > 0 {
 			meta := make([]byte, 4)
 			binary.LittleEndian.PutUint32(meta, hLen+add)
-			err = c.db.Put(t, c.EncodeKey(KEY_TYPE_HASH, key), c.EncodeValue(meta, 0))
+			err = db.Put(t, c.EncodeKey(KEY_TYPE_HASH, key), c.EncodeValue(meta, 0))
 			if err != nil {
 				return err
 			}
@@ -93,8 +95,9 @@ func (c *RedisCommand) HSet(key []byte, args ...[]byte) error {
 }
 
 func (c *RedisCommand) HGet(key []byte, field ...[]byte) (ret [][]byte, err error) {
-	err = c.db.Transaction(func(t interface{}) error {
-		expire, v := c.DecodeValue(c.db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
+	db := c.DB(key)
+	err = db.Transaction(func(t interface{}) error {
+		expire, v := c.DecodeValue(db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
 		if expire {
 			c.HashDel(key)
 			return ErrKeyNotFound
@@ -105,7 +108,7 @@ func (c *RedisCommand) HGet(key []byte, field ...[]byte) (ret [][]byte, err erro
 
 		var res []byte
 		for _, v := range field {
-			res = c.db.Get(t, c.HashEncodeKey(key, v))
+			res = db.Get(t, c.HashEncodeKey(key, v))
 			if res == nil {
 				return ErrKeyNotFound
 			}
@@ -117,8 +120,9 @@ func (c *RedisCommand) HGet(key []byte, field ...[]byte) (ret [][]byte, err erro
 }
 
 func (c *RedisCommand) HLen(key []byte) (ret uint32, err error) {
-	err = c.db.Transaction(func(t interface{}) error {
-		expire, value := c.DecodeValue(c.db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
+	db := c.DB(key)
+	err = db.Transaction(func(t interface{}) error {
+		expire, value := c.DecodeValue(db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
 		if expire {
 			c.HashDel(key)
 			return ErrKeyNotFound
@@ -130,15 +134,16 @@ func (c *RedisCommand) HLen(key []byte) (ret uint32, err error) {
 }
 
 func (c *RedisCommand) HDel(key []byte, args ...[]byte) (ret uint32, err error) {
-	err = c.db.Transaction(func(t interface{}) error {
-		expire, _ := c.DecodeValue(c.db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
+	db := c.DB(key)
+	err = db.Transaction(func(t interface{}) error {
+		expire, _ := c.DecodeValue(db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
 		if expire {
 			c.HashDel(key)
 			return ErrKeyNotFound
 		}
 
 		for _, v := range args {
-			err = c.db.Del(t, c.HashEncodeKey(key, v))
+			err = db.Del(t, c.HashEncodeKey(key, v))
 			if err != nil {
 				return err
 			}
@@ -150,15 +155,16 @@ func (c *RedisCommand) HDel(key []byte, args ...[]byte) (ret uint32, err error) 
 }
 
 func (c *RedisCommand) HGetAll(key []byte) (ret []*store.Pair, err error) {
-	err = c.db.Transaction(func(t interface{}) error {
-		expire, _ := c.DecodeValue(c.db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
+	db := c.DB(key)
+	err = db.Transaction(func(t interface{}) error {
+		expire, _ := c.DecodeValue(db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
 		if expire {
 			c.HashDel(key)
 			return ErrKeyNotFound
 		}
 
 		var field []byte
-		slcRet := c.db.Scan(c.HashEncodePrefix(key))
+		slcRet := db.Scan(c.HashEncodePrefix(key))
 		for _, v := range slcRet {
 			field = c.HashDecodeKey(v.V0)
 			ret = append(ret, &store.Pair{field, v.V1})
@@ -169,14 +175,15 @@ func (c *RedisCommand) HGetAll(key []byte) (ret []*store.Pair, err error) {
 }
 
 func (c *RedisCommand) HExists(key, field []byte) (ret int, err error) {
-	err = c.db.Transaction(func(t interface{}) error {
-		expire, _ := c.DecodeValue(c.db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
+	db := c.DB(key)
+	err = db.Transaction(func(t interface{}) error {
+		expire, _ := c.DecodeValue(db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
 		if expire {
 			c.HashDel(key)
 			return ErrKeyNotFound
 		}
 
-		value := c.db.Get(t, c.HashEncodeKey(key, field))
+		value := db.Get(t, c.HashEncodeKey(key, field))
 		if value != nil {
 			ret = 1
 		}
@@ -186,14 +193,15 @@ func (c *RedisCommand) HExists(key, field []byte) (ret int, err error) {
 }
 
 func (c *RedisCommand) HKeys(key []byte) (ret [][]byte) {
-	err := c.db.Transaction(func(t interface{}) error {
-		expire, _ := c.DecodeValue(c.db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
+	db := c.DB(key)
+	err := db.Transaction(func(t interface{}) error {
+		expire, _ := c.DecodeValue(db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
 		if expire {
 			return ErrKeyNotFound
 		}
 
 		var field []byte
-		slcRet := c.db.Scan(c.HashEncodePrefix(key))
+		slcRet := db.Scan(c.HashEncodePrefix(key))
 		for _, v := range slcRet {
 			field = c.HashDecodeKey(v.V0)
 			ret = append(ret, field)
@@ -207,14 +215,15 @@ func (c *RedisCommand) HKeys(key []byte) (ret [][]byte) {
 }
 
 func (c *RedisCommand) HTtl(key []byte) (ret [][]byte) {
-	err := c.db.Transaction(func(t interface{}) error {
-		expire, _ := c.DecodeValue(c.db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
+	db := c.DB(key)
+	err := db.Transaction(func(t interface{}) error {
+		expire, _ := c.DecodeValue(db.Get(t, c.EncodeKey(KEY_TYPE_HASH, key)))
 		if expire {
 			return ErrKeyNotFound
 		}
 
 		var field []byte
-		slcRet := c.db.Scan(c.HashEncodeKey(key, []byte{}))
+		slcRet := db.Scan(c.HashEncodeKey(key, []byte{}))
 		for _, v := range slcRet {
 			field = c.HashDecodeKey(v.V0)
 			ret = append(ret, field)

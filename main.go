@@ -3,14 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/tidwall/redcon"
+	"github.com/Zealous-w/redcon"
+	"github.com/Zealous-w/tacodb/command"
+	"github.com/Zealous-w/tacodb/server"
+	"github.com/Zealous-w/tacodb/store"
 	"log"
 	"os"
 	"os/signal"
-	"tacodb/command"
-	"tacodb/server"
-	"tacodb/store"
-	"sort"
+	"runtime"
 	"strings"
 	"syscall"
 )
@@ -19,7 +19,7 @@ var (
 	flagHost  = flag.String("h", "127.0.0.1", "host name")
 	flagPort  = flag.String("p", "6380", "port")
 	flagPath  = flag.String("d", "./data/", "directory")
-	flagStore = flag.String("s", "leveldb", "kv store")
+	flagStore = flag.String("s", "leveldb", "kv store [boltdb, leveldb]")
 )
 
 var (
@@ -33,24 +33,15 @@ func msgCommandDispatcher(conn redcon.Conn, cmd redcon.Command) {
 			conn.WriteError(fmt.Sprintf("ERR wrong number of arguments for '%s' command", cmd.Args))
 			return
 		}
-		workers.Push(cmd.Args[1], &server.Client{Conn: conn, Cmds: &cmd})
+		err := server.MsgCmd.Dispatcher(strings.ToLower(string(cmd.Args[0])), &server.Client{Conn: conn}, cmd.Args...)
+		if err != nil {
+			conn.WriteError("ERR '" + err.Error() + "'")
+		}
 		return
 	case "info":
-		s := workers.Stats()
-		slc := make([]int, 0, len(s))
-		for k := range s {
-			slc = append(slc, k)
-		}
-		sort.Ints(slc)
-		////
-		conn.WriteArray(len(slc) + 4)
+		conn.WriteArray(3)
 		conn.WriteString("# Server")
 		conn.WriteString(fmt.Sprintf("pid:%d", os.Getpid()))
-
-		conn.WriteString("# thread stats")
-		for _, v := range slc {
-			conn.WriteString(fmt.Sprintf("tid:%d, count:%d", v, s[v]))
-		}
 		conn.WriteNull()
 		return
 	case "select":
@@ -88,14 +79,10 @@ func signalHandler(s *redcon.Server) {
 }
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	flag.Parse()
-	db := store.NewDBStore(*flagStore)
-	err := db.Open(*flagPath)
-	if err != nil {
-		log.Printf("open db failed %+v", err)
-		return
-	}
-	defer db.Close()
+	db, close := store.NewDBStore(*flagStore, *flagPath)
+	defer close()
 	workers.Start()
 
 	log.Printf("tacodb start success, store:%s addr:%s", *flagStore, *flagHost+":"+*flagPort)
@@ -108,7 +95,6 @@ func main() {
 		},
 		nil)
 	signalHandler(server)
-	err = server.ListenAndServe()
-	workers.Close()
+	_ = server.ListenAndServe()
 	log.Printf("tacodb exit, bye bye...")
 }

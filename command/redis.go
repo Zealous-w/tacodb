@@ -3,7 +3,8 @@ package command
 import (
 	"encoding/binary"
 	"errors"
-	"tacodb/store"
+	"github.com/Zealous-w/tacodb/store"
+	"github.com/Zealous-w/tacodb/util"
 	"time"
 )
 
@@ -30,13 +31,22 @@ var (
 )
 
 type RedisCommand struct {
-	db store.IStore
+	db     []store.IStore
 }
 
-func NewRedisCommand(db store.IStore) *RedisCommand {
+func NewRedisCommand(db []store.IStore) *RedisCommand {
 	return &RedisCommand{
 		db: db,
 	}
+}
+
+func (c *RedisCommand) DB(key []byte) store.IStore {
+	if len(c.db) == 0 {
+		return nil
+	}
+	//index := util.BKDRHash(key) & uint32(len(c.db) - 1)
+	index := util.BKDRHash(key) % uint32(len(c.db))
+	return c.db[index]
 }
 
 func (*RedisCommand) EncodeKey(tp byte, key []byte) []byte {

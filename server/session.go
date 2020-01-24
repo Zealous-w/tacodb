@@ -2,7 +2,7 @@ package server
 
 import (
 	"bufio"
-	"github.com/tidwall/redcon"
+	"github.com/Zealous-w/redcon"
 )
 
 type Session struct {

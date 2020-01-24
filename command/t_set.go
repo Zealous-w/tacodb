@@ -27,26 +27,28 @@ func (*RedisCommand) SetDecodeKey(key []byte) []byte {
 }
 
 func (c *RedisCommand) SetDel(key []byte) error {
-	return c.db.Transaction(func(t interface{}) error {
-		data := c.db.Get(t, c.EncodeKey(KEY_TYPE_SET, key))
+	db := c.DB(key)
+	return db.Transaction(func(t interface{}) error {
+		data := db.Get(t, c.EncodeKey(KEY_TYPE_SET, key))
 		if data == nil {
 			return ErrKeyNotFound
 		}
-		_ = c.db.Del(t, c.EncodeKey(KEY_TYPE_SET, key))
-		slcRet := c.db.Scan(c.SetEncodePrefix(key))
+		_ = db.Del(t, c.EncodeKey(KEY_TYPE_SET, key))
+		slcRet := db.Scan(c.SetEncodePrefix(key))
 		for _, v := range slcRet {
-			_ = c.db.Del(t, c.SetEncodeKey(key, v.V0))
+			_ = db.Del(t, c.SetEncodeKey(key, v.V0))
 		}
 		return nil
 	})
 }
 
 func (c *RedisCommand) SAdd(key []byte, args ...[]byte) error {
-	return c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	return db.Transaction(func(t interface{}) error {
 		var err error
 		sLen := uint32(0)
 		metaKey := c.EncodeKey(KEY_TYPE_SET, key)
-		expire, meta := c.DecodeValue(c.db.Get(t, metaKey))
+		expire, meta := c.DecodeValue(db.Get(t, metaKey))
 		if len(meta) > 0 {
 			sLen = binary.LittleEndian.Uint32(meta)
 		}
@@ -60,11 +62,11 @@ func (c *RedisCommand) SAdd(key []byte, args ...[]byte) error {
 		var memberKey []byte
 		for _, m := range args {
 			memberKey = c.SetEncodeKey(key, m)
-			exist := c.db.Get(t, memberKey)
+			exist := db.Get(t, memberKey)
 			if exist != nil {
 				continue
 			}
-			err = c.db.Put(t, memberKey, m)
+			err = db.Put(t, memberKey, m)
 			if err != nil {
 				return err
 			}
@@ -78,15 +80,16 @@ func (c *RedisCommand) SAdd(key []byte, args ...[]byte) error {
 		sLen += uint32(count)
 		metaData := make([]byte, 4)
 		binary.LittleEndian.PutUint32(metaData, sLen)
-		return c.db.Put(t, metaKey, c.EncodeValue(metaData, 0))
+		return db.Put(t, metaKey, c.EncodeValue(metaData, 0))
 	})
 }
 
 func (c *RedisCommand) SRem(key []byte, args ...[]byte) error {
-	return c.db.Transaction(func(t interface{}) error {
+	db := c.DB(key)
+	return db.Transaction(func(t interface{}) error {
 		var err error
 		sLen := uint32(0)
-		expire, meta := c.DecodeValue(c.db.Get(t, c.EncodeKey(KEY_TYPE_SET, key)))
+		expire, meta := c.DecodeValue(db.Get(t, c.EncodeKey(KEY_TYPE_SET, key)))
 		if len(meta) > 0 {
 			sLen = binary.LittleEndian.Uint32(meta)
 		}
@@ -96,7 +99,7 @@ func (c *RedisCommand) SRem(key []byte, args ...[]byte) error {
 		}
 
 		for _, m := range args {
-			err = c.db.Del(t, c.SetEncodeKey(key, m))
+			err = db.Del(t, c.SetEncodeKey(key, m))
 			if err != nil {
 				return err
 			}
@@ -105,19 +108,20 @@ func (c *RedisCommand) SRem(key []byte, args ...[]byte) error {
 		sLen -= uint32(len(args))
 		metaData := make([]byte, 4)
 		binary.LittleEndian.PutUint32(metaData, sLen)
-		return c.db.Put(t, c.EncodeKey(KEY_TYPE_SET, key), c.EncodeValue(metaData, 0))
+		return db.Put(t, c.EncodeKey(KEY_TYPE_SET, key), c.EncodeValue(metaData, 0))
 	})
 }
 
 func (c *RedisCommand) SMembers(key []byte, args ...[]byte) (ret [][]byte, err error) {
-	err = c.db.Transaction(func(t interface{}) error {
-		expire, _ := c.DecodeValue(c.db.Get(t, c.EncodeKey(KEY_TYPE_SET, key)))
+	db := c.DB(key)
+	err = db.Transaction(func(t interface{}) error {
+		expire, _ := c.DecodeValue(db.Get(t, c.EncodeKey(KEY_TYPE_SET, key)))
 		if expire {
 			c.SetDel(key)
 			return ErrKeyNotFound
 		}
 
-		slc := c.db.Scan(c.SetEncodePrefix(key))
+		slc := db.Scan(c.SetEncodePrefix(key))
 		for _, v := range slc {
 			ret = append(ret, v.V1)
 		}
@@ -127,8 +131,9 @@ func (c *RedisCommand) SMembers(key []byte, args ...[]byte) (ret [][]byte, err e
 }
 
 func (c *RedisCommand) SCard(key []byte) (ret uint32, err error) {
-	err = c.db.Transaction(func(t interface{}) error {
-		expire, meta := c.DecodeValue(c.db.Get(t, c.EncodeKey(KEY_TYPE_SET, key)))
+	db := c.DB(key)
+	err = db.Transaction(func(t interface{}) error {
+		expire, meta := c.DecodeValue(db.Get(t, c.EncodeKey(KEY_TYPE_SET, key)))
 		if expire {
 			c.SetDel(key)
 			return ErrKeyNotFound

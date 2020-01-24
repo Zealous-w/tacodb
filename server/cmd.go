@@ -2,7 +2,7 @@ package server
 
 import (
 	"fmt"
-	"tacodb/command"
+	"github.com/Zealous-w/tacodb/command"
 	"reflect"
 	"runtime"
 	"strconv"
